@@ -1,0 +1,37 @@
+﻿<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Name="LiveWindow" x:Class="MyPresenter.LiveOutputWindow"
+        Title="LiveOutputWindow" Background="Black" Topmost="True" WindowStyle="None" ShowInTaskbar="False" KeyDown="LiveWindow_KeyDown">
+    <Grid x:Name="liveGrid">
+        <Grid.Resources>
+            <Style x:Key="SetTextColor" TargetType="TextBlock">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Path=UseDarkText, UpdateSourceTrigger=PropertyChanged}" Value="True">
+                        <Setter Property="Foreground" Value="Black"/>
+                    </DataTrigger>
+
+                    <DataTrigger Binding="{Binding Path=UseDarkText, UpdateSourceTrigger=PropertyChanged}" Value="False">
+                        <Setter Property="Foreground" Value="White"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Grid.Resources>
+        <Viewbox x:Name="mediaViewBox" Stretch="Uniform" Margin="152,0,152,216">
+            <MediaElement Name="VideoPlayer" MaxWidth="320" MaxHeight="240" MinWidth="320" MinHeight="240" VerticalAlignment="Center" HorizontalAlignment="Center" LoadedBehavior="Manual" UnloadedBehavior="Manual" ScrubbingEnabled="True" />
+        </Viewbox>
+        <Viewbox x:Name="textViewBox" Stretch="Uniform" Margin="300,40,300,230">
+            <TextBlock x:Name="scriptTextBlock" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextWrapping="Wrap" Style="{StaticResource ResourceKey=SetTextColor}" TextAlignment="Center" FontFamily="Century Gothic">
+                <TextBlock.Effect>
+                    <DropShadowEffect
+                      ShadowDepth="2"
+                      Direction="330"
+                      Color="Black"
+                      Opacity="0.5"
+                      BlurRadius="2"/>
+                </TextBlock.Effect>
+            </TextBlock>
+        </Viewbox>
+    </Grid>
+</Window>

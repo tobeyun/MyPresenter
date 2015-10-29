@@ -1,0 +1,12 @@
+﻿<Window x:Class="MyPresenter.Window1"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Window1" Height="326" Width="349">
+    <Grid>
+        <StackPanel Margin="0,30,20,30">
+            <TextBox x:Name="TextBox1" Height="255" TextWrapping="Wrap" AcceptsReturn="True" Margin="10,10"/>
+        </StackPanel>
+        <Button Content="Get Spotify" Click="Button_Click" HorizontalAlignment="Right" Width="125" Margin="0,5,206,270"/>
+        <Button Content="Button" HorizontalAlignment="Left" Width="116" Margin="205,5,0,270" Click="Button_Click_1"/>
+    </Grid>
+</Window>
