@@ -79,6 +79,7 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="JsonHelper.cs" />
+    <Compile Include="openlyricSong.cs" />
     <Compile Include="pco.cs" />
     <Compile Include="pcoItems.cs" />
     <Compile Include="pcoPlan.cs" />

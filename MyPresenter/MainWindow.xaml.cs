@@ -97,72 +97,6 @@ namespace MyPresenter
         }
     }
 
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    [System.Xml.Serialization.XmlRootAttribute(Namespace="http://openlyrics.info/namespace/2009/song", IsNullable=false)]
-    public class song
-    {
-        public songProperties properties { get; set; }
-    
-        [System.Xml.Serialization.XmlArrayItemAttribute("verse", IsNullable=false)]
-        public songVerse[] lyrics { get; set; }
-
-        [System.Xml.Serialization.XmlAttributeAttribute()]
-        public decimal version { get; set; }
-
-        [System.Xml.Serialization.XmlAttributeAttribute()]
-        public string createdIn { get; set; }
-
-        [System.Xml.Serialization.XmlAttributeAttribute()]
-        public string modifiedIn { get; set; }
-
-        [System.Xml.Serialization.XmlAttributeAttribute()]
-        public System.DateTime modifiedDate { get; set; }
-    }
-
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    public class songProperties
-    {
-        public songPropertiesTitles titles { get; set; }
-        public songPropertiesAuthors authors { get; set; }
-        public string key { get; set; }
-        public string loop { get; set; }
-    }
-
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    public class songPropertiesTitles { public string title { get; set; } }
-
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    public class songPropertiesAuthors { public string author { get; set; } }
-
-    /// <remarks/>
-    //[System.Xml.Serialization.XmlTypeAttribute(AnonymousType = true, Namespace = "http://openlyrics.info/namespace/2009/song")]
-    //public class songPropertiesKey { public string key { get; set; } }
-    
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    public class songVerse
-    {
-        public songVerseLines lines { get; set; }
-
-        [System.Xml.Serialization.XmlAttributeAttribute()]
-        public string name { get; set; }
-    }
-
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://openlyrics.info/namespace/2009/song")]
-    public class songVerseLines
-    {
-        //[System.Xml.Serialization.XmlElementAttribute("br")]
-        //public object[] br { get; set; }
-    
-        [System.Xml.Serialization.XmlTextAttribute()]
-        public string[] Text { get; set; }
-    }
-
     public static class Serializer
     {
         #region Functions
@@ -297,6 +231,7 @@ namespace MyPresenter
             set
             {
                 _liveOutputMediaPlayer.IsMuted = value;
+                _audioPlayer.IsMuted = value;
 
                 _muteAudio = value;
 
@@ -520,8 +455,6 @@ namespace MyPresenter
 
                     startTimeTextBox.Text = "";
 
-                    MuteAudio = true;  
-
                     // set random bumper/countdown if none selected
                     if (BumperVideoComboBox.SelectedIndex < 1)
                     {
@@ -559,11 +492,20 @@ namespace MyPresenter
             //long video = _liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks;
             long offset = startTime.Ticks - DateTime.Now.Ticks;
 
+            if (offset < 0) return;
+
             if (_liveOutputMediaPlayer.NaturalDuration.HasTimeSpan)
             {
                 MuteAudio = true;
 
-                if (offset > _liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks) offset = 0;
+                // play entire clip if media length is less than offset
+                if (offset > _liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks)
+                {
+                    // sleep until offset
+                    Thread.Sleep((int)(_liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks / TimeSpan.TicksPerMillisecond));
+
+                    offset = 0;
+                }
                 
                 _liveOutputMediaPlayer.Clock.Controller.Seek(new TimeSpan(_liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks - offset), TimeSeekOrigin.BeginTime);
                 _liveOutputMediaPlayer.Clock.Controller.Resume();
@@ -874,19 +816,19 @@ namespace MyPresenter
 
         private void serviceListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (PresentationSource.FromVisual(_liveOutputWindow) == null) return;
-
             if (serviceListBox.SelectedIndex < 0) ScriptListView.Items.Clear();
             if (serviceListBox.SelectedIndex < 0) return;
 
-            _liveOutputWindow.DisplayText("");
-
+            _liveOutputWindow.DisplayText(""); 
+            
             ServiceItem _song = (ServiceItem)serviceListBox.SelectedItem;
 
-            setSong(_song.Title);
+            setSong(_song.Title); 
+            
+            if (PresentationSource.FromVisual(_liveOutputWindow) == null) return;
 
-            startPad(getPadSelection(serviceListBox.SelectedItem));
             setLoop(getLoopSelection(serviceListBox.SelectedItem));
+            startPad(getPadSelection(serviceListBox.SelectedItem));
             
             //if (serviceListBox.SelectedItem.ToString().Contains("Break"))
             //    gotoBreak(new Uri(Properties.Resources.ImagePath + "\\LivingRoomLive.jpg", UriKind.Absolute));
@@ -1063,15 +1005,15 @@ namespace MyPresenter
             // save service list for offline backup
             Serializer.SerializeToXML<ServiceItem>(_serviceItemList);
 
-            foreach (ServiceItem serviceItem in serviceListBox.Items)
-            {
-                song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + serviceItem.Title + ".xml");
+            //foreach (ServiceItem serviceItem in serviceListBox.Items)
+            //{
+            //    song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + serviceItem.Title + ".xml");
 
-                _song.properties.key = serviceItem.Pad;
-                _song.properties.loop = serviceItem.Loop;
+            //    _song.properties.key = serviceItem.Pad;
+            //    _song.properties.loop = serviceItem.Loop;
 
-                Serializer.SerializeToXML<song>(_song, Properties.Resources.SongPath + serviceItem.Title + ".xml");
-            }
+            //    Serializer.SerializeToXML<song>(_song, Properties.Resources.SongPath + serviceItem.Title + ".xml");
+            //}
         }
 
         private void Window_Closed(object sender, EventArgs e)
@@ -1093,6 +1035,8 @@ namespace MyPresenter
             _audioPlayer = new MediaPlayer();
             _audioPlayer.Open(new Uri(Properties.Resources.PadPath + PadToPlay + ".mp3"));
             _audioPlayer.Play();
+
+            MuteAudio = false;
         }
 
         private void setLoop(string LoopToPlay)

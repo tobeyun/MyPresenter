@@ -34,6 +34,17 @@ namespace MyPresenter
             InitializeComponent();
 
             //getPlanItems();
+            song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + "Love Come Down.xml");
+
+            //var q = (
+            //        from l in _song.lyrics
+            //        select l.lines.Text).ToList();
+
+            foreach (songVerse s in _song.lyrics)
+            {
+                if (s.lines.VerseText != null)
+                    TextBox1.Text += s.lines.VerseText.GetLength(0) + "\n";
+            }
         }
 
         private void getPlanItems()
