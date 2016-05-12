@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace MyPresenter
+﻿namespace MyPresenter
 {
     /// <remarks/>
     [System.Xml.Serialization.XmlTypeAttribute(AnonymousType = true, Namespace = "http://openlyrics.info/namespace/2009/song")]
@@ -51,20 +45,9 @@ namespace MyPresenter
     [System.Xml.Serialization.XmlTypeAttribute(AnonymousType = true, Namespace = "http://openlyrics.info/namespace/2009/song")]
     public class songVerse
     {
-        public songVerseLines lines { get; set; }
-
         [System.Xml.Serialization.XmlAttributeAttribute()]
         public string name { get; set; }
-    }
 
-    /// <remarks/>
-    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType = true, Namespace = "http://openlyrics.info/namespace/2009/song")]
-    public class songVerseLines
-    {
-        //[System.Xml.Serialization.XmlElementAttribute("br")]
-        //public object[] br { get; set; }
-
-        [System.Xml.Serialization.XmlTextAttribute()]
-        public string[] VerseText { get; set; }
+        public string lines { get; set; }
     }
 }

@@ -97,6 +97,15 @@ namespace MyPresenter.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to C:\Users\Owner\Desktop\MyPresenterLibrary\notes.txt.
+        /// </summary>
+        public static string NotesPath {
+            get {
+                return ResourceManager.GetString("NotesPath", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to C:\Users\Owner\Desktop\MyPresenterLibrary\AudioLibrary\Pads\.
         /// </summary>
         public static string PadPath {
@@ -111,6 +120,24 @@ namespace MyPresenter.Properties {
         public static string PlaceholderImagePath {
             get {
                 return ResourceManager.GetString("PlaceholderImagePath", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to C:\Users\Owner\Desktop\MyPresenterLibrary\index.htm.
+        /// </summary>
+        public static string RemoteControlIndexPage {
+            get {
+                return ResourceManager.GetString("RemoteControlIndexPage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to C:\Users\Owner\Desktop\MyPresenterLibrary\index.tmp.
+        /// </summary>
+        public static string RemoteControlIndexTemplate {
+            get {
+                return ResourceManager.GetString("RemoteControlIndexTemplate", resourceCulture);
             }
         }
         

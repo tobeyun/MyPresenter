@@ -1,29 +1,18 @@
 ﻿using System;
-using System.IO;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
-using System.Resources;
 using System.Runtime.InteropServices;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices.ComTypes;
-using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Xml;
-using System.Xml.Linq;
-using System.Xml.Serialization;
-using System.Threading.Tasks;
 using System.Web;
-using System.Web.UI;
-using System.Web.UI.WebControls;
-using System.Xml.XPath;
-using System.Xml.Xsl;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -33,136 +22,13 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Xml;
+using System.Xml.Serialization;
 
 namespace MyPresenter
-{    
-    public class ServiceItem
-    {
-        [XmlAttribute(AttributeName="type")]
-        public string Type { get; set; }
-
-        [XmlAttribute(AttributeName="title")]
-        public string Title { get; set; }
-
-        [XmlAttribute(AttributeName = "error")]
-        public bool Error { get; set; }
-
-        [XmlAttribute(AttributeName="path")]
-        public string Path { get; set; }
-
-        [XmlAttribute(AttributeName="pad")]
-        public string Pad { get; set; }
-
-        [XmlAttribute(AttributeName = "loop")]
-        public string Loop { get; set; }
-
-        [XmlIgnore]
-        public List<string> Pads { get; set; }
-
-        [XmlIgnore]
-        public List<string> Loops { get; set; }
-
-        public ServiceItem()
-        {
-            FileInfo[] padsDi = new DirectoryInfo(Properties.Resources.PadPath).GetFiles("*.mp3");
-            FileInfo[] loopsDi = new DirectoryInfo(Properties.Resources.LoopPath).GetFiles("background*.mpg");
-
-            Pads = new List<string>();
-
-            Pads.Add("");
-
-            foreach (FileInfo pad in padsDi)
-                Pads.Add(System.IO.Path.GetFileNameWithoutExtension(pad.Name));
-
-            Loops = new List<string>();
-
-            Loops.Add("");
-
-            foreach (FileInfo loop in loopsDi)
-                Loops.Add(System.IO.Path.GetFileNameWithoutExtension(loop.Name.Remove(0, 11)));
-        }
-
-        public ServiceItem(bool error)
-        {
-            Error = error;
-        }
-
-        public ServiceItem(bool error, string title)
-        {
-            Error = error;
-            Title = title;
-        }
-    }
-
-    public static class Serializer
-    {
-        #region Functions
-        public static void SerializeToXML<ServiceItem>(ObservableCollection<ServiceItem> t)
-        {
-            XmlSerializer serializer = new XmlSerializer(t.GetType());
-
-            using (TextWriter textWriter = new StreamWriter(Properties.Resources.SettingsFilePath))
-            {
-                serializer.Serialize(textWriter, t);
-            }
-        }
-
-        public static ObservableCollection<ServiceItem> DeserializeFromXML<ServiceItem>()
-        {
-            XmlSerializer deserializer = new XmlSerializer(typeof(ObservableCollection<ServiceItem>), new XmlRootAttribute("ArrayOfServiceItem"));
-            ObservableCollection<ServiceItem> retVal = null;
-
-            try
-            {
-                using (TextReader textReader = new StreamReader(Properties.Resources.SettingsFilePath))
-                {
-                    retVal = (ObservableCollection<ServiceItem>)deserializer.Deserialize(textReader);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Write(ex.Message);
-            }
-
-            return retVal;
-        }
-        
-        public static void SerializeToXML<song>(song t, string filePath)
-        {
-            XmlSerializer serializer = new XmlSerializer(t.GetType());
-
-            using (TextWriter textWriter = new StreamWriter(filePath))
-            {
-                serializer.Serialize(textWriter, t);
-            }
-        }
-
-        public static song DeserializeFromXML<song>(string filePath)
-        {
-            XmlSerializer deserializer = new XmlSerializer(typeof(song));
-            song retVal = default(song);
-
-            try
-            {
-                using (TextReader textReader = new StreamReader(filePath))
-                {
-                    retVal = (song)deserializer.Deserialize(textReader);
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show("Error loading  '" + System.IO.Path.GetFileNameWithoutExtension(filePath) + "'.\n\n" + ex.InnerException.Message, "Song Error", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-
-                //Console.Write(ex.Message);
-            }
-
-            return retVal;
-        }
-        #endregion
-    }
+{
+    public enum Loop_Types { ANNOUNCEMENTS, BACKGROUND }
 
     public class LineConverter : IMultiValueConverter
     {
@@ -171,7 +37,7 @@ namespace MyPresenter
             string total = "";
 
             foreach (string val in values)
-                total += "\n" + val;
+                total += "\r\n" + val;
 
             return total.ToString();
         }
@@ -188,8 +54,27 @@ namespace MyPresenter
     /// 
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
+        [FlagsAttribute]
+        public enum EXECUTION_STATE : uint
+        {
+            ES_SYSTEM_REQUIRED = 0x00000001,
+            ES_DISPLAY_REQUIRED = 0x00000002,
+            ES_AWAYMODE_REQUIRED = 0x00000040,
+            ES_CONTINUOUS = 0x80000000,
+        }
+
+        public static class SleepUtil
+        {
+            [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+            public static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
 
+        private BackgroundWorker _notesWorker = new BackgroundWorker();
+        private BackgroundWorker _pcoWorker = new BackgroundWorker();
+
+        private RemoteControl _remoteControl;
         private LiveOutputWindow _liveOutputWindow;
         private MediaElement _liveOutputMediaPlayer;
         private MediaPlayer _audioPlayer;
@@ -199,21 +84,70 @@ namespace MyPresenter
         private ObservableCollection<ServiceItem> _serviceItemList;
         private string pco_last_update;
 
+        private static MediaElement _prevVideo = new MediaElement();
+        private static MediaElement _currVideo = new MediaElement();
+        private static MediaElement _NextVideo = new MediaElement();
+
+        private bool LiveActive { get; set; }
+
         public MainWindow()
         {
             InitializeComponent();
 
-            scriptTextBlock.DataContext = this;
+            //scriptTextBlock.DataContext = this;
 
             _serviceItemList = new ObservableCollection<ServiceItem>();
+
+            _remoteControl = new RemoteControl();
+            _remoteControl.RemoteControlEvent += _remoteControl_OnRemoteControl;
+            _remoteControl.StartServer();
+
+            _notesWorker.WorkerSupportsCancellation = true;
+            _notesWorker.DoWork += notesWorker_DoWork;
+            _notesWorker.RunWorkerCompleted += notesWorker_RunWorkerCompleted;
+
+            _pcoWorker.WorkerSupportsCancellation = true;
+            _pcoWorker.DoWork += pcoWorker_DoWork;
+            _pcoWorker.RunWorkerCompleted += pcoWorker_RunWorkerCompleted;
+
+            // diable screen saver while running
+            SleepUtil.SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS | EXECUTION_STATE.ES_DISPLAY_REQUIRED | EXECUTION_STATE.ES_SYSTEM_REQUIRED);
+
+            // display remote control address
+            Label1.Content = _remoteControl.status;
         }
 
+        void _remoteControl_OnRemoteControl(object sender, RemoteControl.RemoteControlArgs e)
+        {
+            if (e.PageParams.Count == 0) return;
+
+            // action from remote page
+            foreach (var item in e.PageParams.ToList())
+            {
+                if (item.Value == "play")
+                    playVideo();    // calls generateHtml()
+                else if (item.Value == "stop")
+                    stopLive();     // calls generateHtml()
+                else if (item.Value == "next")
+                    ScriptListView.SelectedIndex = ScriptListView.SelectedIndex + 1; // does NOT call generateHtml(); saves current slide to App.Current.Properties["card"]
+                else if (item.Value == "prev")
+                    ScriptListView.SelectedIndex = ScriptListView.SelectedIndex - 1; // does NOT call generateHtml(); saves current slide to App.Current.Properties["card"]
+                else
+                {
+                    foreach (ServiceItem si in _serviceItemList)
+                        if (si.Title == WebUtility.UrlDecode(item.Value.ToString()))
+                        {
+                            serviceListBox.SelectedItem = si; // calls generateHtml()
+
+                            break;
+                        }
+                } 
+            }
+        }
+        
         private bool UseDarkText
         {
-            get
-            {
-                return _useDarkText;
-            }
+            get { return _useDarkText; }
             set
             {
                 _useDarkText = value;
@@ -224,10 +158,7 @@ namespace MyPresenter
 
         private bool MuteAudio
         {
-            get
-            {
-                return _muteAudio;
-            }
+            get { return _muteAudio; }
             set
             {
                 _liveOutputMediaPlayer.IsMuted = value;
@@ -250,14 +181,13 @@ namespace MyPresenter
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            loadSongs();
+            // set UI
             loadBackgroundLoops();
             loadBackgroundAudio();
             loadBumperVideos();
             loadBackgroundImages();
             loadLiveOutputWindow(Properties.Resources.PlaceholderImagePath);
-            //loadServiceList();
-            
+
             // set up directory watchers
             _watcher = new FileSystemWatcher(Properties.Resources.LibraryPath, "*.*");
             _watcher.IncludeSubdirectories = true;
@@ -267,25 +197,21 @@ namespace MyPresenter
             _watcher.Created += new FileSystemEventHandler(FileSystemChanged);
             _watcher.Deleted += new FileSystemEventHandler(FileSystemChanged);
 
-            // set up low res timer
-            DispatcherTimer fiveSecondTimer = new System.Windows.Threading.DispatcherTimer();
-            fiveSecondTimer.Tick += fiveSecondTimer_Tick;
-            fiveSecondTimer.Interval = new TimeSpan(0, 0, 5);
-            fiveSecondTimer.Start();
-
-            // set up high res timer
-            DispatcherTimer oneSecondTimer = new System.Windows.Threading.DispatcherTimer();
-            oneSecondTimer.Tick += oneSecondTimer_Tick;
-            oneSecondTimer.Interval = new TimeSpan(0, 0, 1);
-            oneSecondTimer.Start();
+            // disable play/stop buttons until service list is downloaded
+            playVideoButton.IsEnabled = false;
+            stopVideoButton.IsEnabled = false;
 
             // set service data context
             serviceListBox.ItemsSource = _serviceItemList;
             serviceListBox.SelectedIndex = -1;
 
+            // load notes
+            notesTextBox.Document.Blocks.Clear();
+            notesTextBox.Document.Blocks.Add(new Paragraph(new Run(getNotes())));
+
             // set window caption
 #if DEBUG
-           this.Title = "MyPresenter - DEBUG";
+            this.Title = "MyPresenter - DEBUG";
 #else
            this.Title = "MyPresenter - " + DateTime.Now.ToString("MMM d, yyyy");
 #endif
@@ -293,10 +219,24 @@ namespace MyPresenter
             //WebBrowser1.Source = new Uri("https://play.spotify.com/user/spotify/playlist/6Higf6awk4pfVmjvlaCn7b?play=true&utm_source=open.spotify.com&utm_medium=open"); //Properties.Resources.SpotifyPath);
         }
 
+        private void Window_ContentRendered(object sender, EventArgs e)
+        {
+            // get songs from PCO
+            _pcoWorker.RunWorkerAsync();
+
+            // load notes
+            //_notesWorker.RunWorkerAsync();
+
+            // set up high res timer
+            DispatcherTimer oneSecondTimer = new System.Windows.Threading.DispatcherTimer();
+            oneSecondTimer.Tick += oneSecondTimer_Tick;
+            oneSecondTimer.Interval = new TimeSpan(0, 0, 1);
+            oneSecondTimer.Start();
+        }
+
         // Define the event handlers. 
         private void FileSystemChanged(object source, FileSystemEventArgs e)
         {
-            if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.SongPath) loadSongs();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.VideoPath) loadBumperVideos();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.PadPath) loadBackgroundAudio();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.LoopPath) loadBackgroundLoops();
@@ -305,7 +245,6 @@ namespace MyPresenter
 
         private void FileSystemRenamed(object source, RenamedEventArgs e)
         {
-            if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.SongPath) loadSongs();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.VideoPath) loadBumperVideos();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.PadPath) loadBackgroundAudio();
             if (System.IO.Path.GetDirectoryName(e.FullPath) == Properties.Resources.LoopPath) loadBackgroundLoops();
@@ -315,7 +254,7 @@ namespace MyPresenter
         private void loadLiveOutputWindow(string path)
         {
             _liveOutputWindow = new LiveOutputWindow();
-                
+
             //second monitor full screen   
             try
             {
@@ -326,6 +265,8 @@ namespace MyPresenter
                 _liveOutputWindow.WindowStyle = System.Windows.WindowStyle.SingleBorderWindow;
                 _liveOutputWindow.Left = area.Left;
                 _liveOutputWindow.Top = area.Top;
+                _liveOutputWindow.Width = 320;
+                _liveOutputWindow.Height = 240;
 
                 if (screens > 1)
                 {
@@ -344,7 +285,9 @@ namespace MyPresenter
                 VideoDisplay.Fill = new VisualBrush(_liveOutputMediaPlayer);
             }
             catch (Exception ex)
-            { }
+            {
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
         }
 
         void _liveOutputMediaPlayer_MediaOpened(object sender, RoutedEventArgs e)
@@ -354,40 +297,93 @@ namespace MyPresenter
 
         private void loadServiceList()
         {
-            _serviceItemList.Clear();
+            //DateTime _pco_last_update;
+
+            //DateTime.TryParse(pco_last_update, out _pco_last_update);
 
             try
             {
-                pcoItems.Items items = PCO.getItems();
                 var rand = new Random();
-                var files = Directory.GetFiles(Properties.Resources.LoopPath, "background*.mpg");
+                var files = Directory.GetFiles(Properties.Resources.LoopPath, "background*.mp*"); // filter for auto-selecting bg loops
+                double _index = 0.0;
+                double _count = 0.0;
 
-                for (int i = 0; i < items.data.Count; i++)
+                this.Dispatcher.Invoke((Action)delegate()
                 {
-                    if (items.data[i].attributes.item_type == "song")
-                    {
-                        if (!File.Exists(Properties.Resources.SongPath + items.data[i].attributes.title + ".xml"))
-                        {
-                            System.Windows.MessageBox.Show("Lyrics for '" + items.data[i].attributes.title + "' are missing.", "Song Error", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                    _serviceItemList.Clear();
 
-                            _serviceItemList.Add(new ServiceItem(true, "MISSING: " + items.data[i].attributes.title));
+                    // alert user to PCO status
+                    _serviceItemList.Add(new ServiceItem(true, "DOWNLOADING SONGS...PLEASE WAIT"));
+                });
+
+                pcoItems.Items _pcoItems = PCO.getItems();
+                
+                // set initial update for error tracking
+                pco_last_update = PCO.pcoLastUpdate();
+
+                for (int i = 0; i < _pcoItems.data.Count; i++)
+                    if (_pcoItems.data[i].attributes.item_type == "song") _count++;
+
+                for (int i = 0; i < _pcoItems.data.Count; i++)
+                {
+                    if (_pcoItems.data[i].attributes.item_type == "song" && _pcoItems.data[i].attributes.service_position == "during")
+                    {
+                        _serviceItemList[0].Progress = (int)((++_index / _count) * 100);
+
+                        if (!File.Exists(Properties.Resources.SongPath + _pcoItems.data[i].attributes.title + ".xml"))
+                        {
+                            //System.Windows.MessageBox.Show("Lyrics for '" + items.data[i].attributes.title + "' are missing.", "Song Error", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+
+                            this.Dispatcher.Invoke((Action)delegate()
+                            {
+                                _serviceItemList.Add(new ServiceItem(true, "MISSING: " + _pcoItems.data[i].attributes.title));
+                            });
+
+                            // clear timestamp to indicate error
+                            pco_last_update = "";
 
                             continue;
                         }
 
-                        song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + items.data[i].attributes.title + ".xml");
-                        string _loop = _song.properties.loop;
+                        New.song _song = Serializer.DeserializeFromXML<New.song>(Properties.Resources.SongPath + _pcoItems.data[i].attributes.title + ".xml");
+                        string _loop = _song.loop;
 
-                        if (_loop == "") _loop =  files[rand.Next(files.Length)];
+                        // select random loop if none specified in XML file
+                        if (_loop == "") _loop = files[rand.Next(files.Length)];
 
                         if (_song != null)
-                            _serviceItemList.Add(new ServiceItem() { Title = _song.properties.titles.title, Pad = _song.properties.key, Loop = System.IO.Path.GetFileNameWithoutExtension(_loop.Replace("background_", "")) });
+                        {
+                            this.Dispatcher.BeginInvoke((Action)delegate()
+                            {
+                                if (_song.key == "")
+                                    _serviceItemList.Add(new ServiceItem(true, "MISSING PAD: " + _song.title));
+                                else
+                                    _serviceItemList.Add(new ServiceItem() { Title = _song.title, Pad = _song.key, Loop = _loop });
+                            });
+
+                            // update if not in error condition
+                            if (pco_last_update != "") pco_last_update = PCO.pcoLastUpdate();
+                        }
                         else // error loading file
-                            _serviceItemList.Add(new ServiceItem(true, "FILE: " + items.data[i].attributes.title));
+                        {
+                            this.Dispatcher.BeginInvoke((Action)delegate()
+                            {
+                                _serviceItemList.Add(new ServiceItem(true, "FILE ERROR: " + _pcoItems.data[i].attributes.title));
+                            });
+                        }
+
+                        // ui hack to show items as each is loaded
+                        // Dispatcher.Invoke(new Action(() => { }), DispatcherPriority.ContextIdle, null);
                     }
                 }
 
-                pco_last_update = PCO.pcoLastUpdate();
+                // remove "downloading"
+                this.Dispatcher.Invoke((Action)delegate()
+                {
+                    _serviceItemList.RemoveAt(0);
+                });
+
+                generateHtml();                                    
             }
             catch (Exception ex)
             {
@@ -396,9 +392,96 @@ namespace MyPresenter
 
                 _serviceItemList = Serializer.DeserializeFromXML<ServiceItem>();
 
-                serviceListBox.SelectedIndex = -1;
+                this.Dispatcher.BeginInvoke((Action)delegate()
+                {
+                    serviceListBox.SelectedIndex = -1;
+                    
+                    // alert user to PCO status
+                    //_serviceItemList.Insert(0, new ServiceItem(true, "Error importing from PCO - OFFLINE"));
+                });
 
                 //System.Windows.MessageBox.Show("Error importing from PCO.", "PCO Import Error - OFFLINE", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
+        }
+
+        private void generateHtml()
+        {
+            try
+            {
+                this.Dispatcher.BeginInvoke((Action)delegate()
+                {
+                    ServiceItem selectedItem = (ServiceItem)serviceListBox.SelectedItem;
+                    string indexContent = "";
+
+                    // get index page content
+                    using (TextReader tr = new StreamReader(Properties.Resources.RemoteControlIndexTemplate))
+                    {
+                        indexContent = tr.ReadToEnd();
+                    }
+
+                    int i = 1;
+                    string _content = "";
+                    const string _divContent = "<div class=\"collapse.in text-center\" id=\"[[--CARDID--]]\"><div class=\"card card-block\"><div class=\"card-text\">[[--CARD--]]</div></div></div>";
+
+                    indexContent = indexContent.Replace("[[--DATE--]]", DateTime.Now.ToString("HH:mm:ss"));
+                    indexContent = indexContent.Replace("[[--REMOTE--]]", _remoteControl.LocalAddress);
+
+                    if (LiveActive)
+                    {
+                        indexContent = indexContent.Replace("[[--HIDDEN--]]", "");
+                        indexContent = indexContent.Replace("[[--LIVEACTIVE--]]", "active");
+                        indexContent = indexContent.Replace("[[--PLAYDISABLED--]]", "disabled");
+                        indexContent = indexContent.Replace("[[--STOPDISABLED--]]", "");
+                        indexContent = indexContent.Replace("[[--NEXTDISABLED--]]", "");
+                        indexContent = indexContent.Replace("[[--PREVDISABLED--]]", "");
+                    }
+                    else
+                    {
+                        indexContent = indexContent.Replace("[[--HIDDEN--]]", "hidden");
+                        indexContent = indexContent.Replace("[[--LIVEACTIVE--]]", "");
+                        indexContent = indexContent.Replace("[[--PLAYDISABLED--]]", "");
+                        indexContent = indexContent.Replace("[[--STOPDISABLED--]]", "disabled");
+                        indexContent = indexContent.Replace("[[--NEXTDISABLED--]]", "disabled");
+                        indexContent = indexContent.Replace("[[--PREVDISABLED--]]", "disabled");
+                    }
+                        
+                    foreach (ServiceItem si in _serviceItemList)
+                    {
+                        if (selectedItem == null)
+                            _content += "<button name=\"button_" + i++.ToString() + "\" value=\"" + si.Title + "\" class=\"btn btn-lg btn-primary btn-block post\">" + si.Title + "</button>";
+                        else if (selectedItem.Title == si.Title)
+                        {
+                            string _temp = "<button name=\"button_" + i++.ToString() + "\" value=\"" + si.Title + "\" class=\"btn btn-lg btn-primary btn-success btn-block post active\" data-toggle=\"collapse\" data-target=\"#collapse_" + i.ToString() + "\" >" + si.Title + "</button>";
+
+                            if (LiveActive)
+                            {
+                                _temp += _divContent.Replace("[[--CARDID--]]", "collapse_" + i.ToString()).Replace("[[--CARD--]]", scriptTextBlock.Text.Replace("\r\n", "<br />"));
+
+                                _content = _temp + _content;
+                            }
+                            else
+                                _content += _temp;
+                        }
+                        else // not null and not selected
+                            _content += "<button name=\"button_" + i++.ToString() + "\" value=\"" + si.Title + "\" class=\"btn btn-lg btn-primary btn-block post\">" + si.Title + "</button>";
+                    }
+
+                    indexContent = indexContent.Replace("[[--CONTENT--]]", _content);
+
+                    App.Current.Properties["html"] = indexContent;
+
+                    // write new index content
+                    //using (TextWriter tw = new StreamWriter(Properties.Resources.RemoteControlIndexPage, false))
+                    //{
+                    //    tw.Write(indexContent);
+                    //}
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
             }
         }
 
@@ -421,16 +504,6 @@ namespace MyPresenter
             // set current time display
             currentTimeLabel.Content = string.Format("{0:HH:mm}", DateTime.Now);
 
-            // set countdown display
-            if (DateTime.TryParseExact(startTimeTextBox.Text, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out startTime))
-            {
-                ts = new TimeSpan(startTime.Ticks - DateTime.Now.Ticks);
-
-                countdownTimeLabel.Content = string.Format("{0:%h}h {0:%m}m {0:%s}s", ts);
-            }
-            else
-                countdownTimeLabel.Content = "";
-
             // set media time display
             try
             {
@@ -444,7 +517,22 @@ namespace MyPresenter
                 }
             }
             catch (Exception ex)
-            { }
+            {
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
+
+            // cancel if not auto-start
+            if (startTimeTextBox.Text == "") return;
+
+            // set countdown display
+            if (DateTime.TryParseExact(startTimeTextBox.Text, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out startTime))
+            {
+                ts = new TimeSpan(startTime.Ticks - DateTime.Now.Ticks);
+
+                countdownTimeLabel.Content = string.Format("{0:%h}h {0:%m}m {0:%s}s", ts);
+            }
+            else
+                countdownTimeLabel.Content = "";
 
             // AUTO START
             try
@@ -467,24 +555,11 @@ namespace MyPresenter
 
                     loadLiveOutputWindow(Properties.Resources.VideoPath + BumperVideoComboBox.SelectedItem.ToString());
 
-                    _liveOutputMediaPlayer.MediaOpened += (se, ea) => { goLive(startTime); };                    
+                    _liveOutputMediaPlayer.MediaOpened += (se, ea) => { goLive(startTime); };
                 }
             }
             catch (Exception ex)
             { Debug.WriteLine(ex.Message); }
-        }
-
-        private void fiveSecondTimer_Tick(object sender, EventArgs e)
-        {
-            DateTime _pcoLastUpdate;
-
-            // do not check for updates if live output
-            if (PresentationSource.FromVisual(_liveOutputWindow) != null) return;
-
-            // check PCO for plan updates
-            if (DateTime.TryParse(PCO.pcoLastUpdate(), out _pcoLastUpdate))
-                if (_pcoLastUpdate != Convert.ToDateTime(pco_last_update))
-                    loadServiceList();
         }
 
         private void goLive(DateTime startTime)
@@ -492,10 +567,12 @@ namespace MyPresenter
             //long video = _liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks;
             long offset = startTime.Ticks - DateTime.Now.Ticks;
 
+            // if offset is negative, start time has passed; this call did not come from auto-start (oneSecondTimer_Tick)
             if (offset < 0) return;
 
             if (_liveOutputMediaPlayer.NaturalDuration.HasTimeSpan)
             {
+                // most likely spotify is running, so mute initial output
                 MuteAudio = true;
 
                 // play entire clip if media length is less than offset
@@ -504,15 +581,17 @@ namespace MyPresenter
                     // sleep until offset
                     Thread.Sleep((int)(_liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks / TimeSpan.TicksPerMillisecond));
 
+                    // allow entire clip to play
                     offset = 0;
                 }
-                
+
                 _liveOutputMediaPlayer.Clock.Controller.Seek(new TimeSpan(_liveOutputMediaPlayer.NaturalDuration.TimeSpan.Ticks - offset), TimeSeekOrigin.BeginTime);
                 _liveOutputMediaPlayer.Clock.Controller.Resume();
             }
-            
+
             if (!_liveOutputWindow.IsVisible) _liveOutputWindow.Show();
 
+            // TODO: combine Play/Pause button (possibly do away with Pause)
             playVideoButton.IsEnabled = false;
         }
 
@@ -528,14 +607,27 @@ namespace MyPresenter
 
             playVideoButton.IsEnabled = true;
 
+            LiveActive = false;
+
             BumperVideoComboBox.SelectedIndex = 0;
             BackgroundAudioComboBox.SelectedIndex = 0;
             BackgroundVideoComboBox.SelectedIndex = 0;
             backgroundImageComboBox.SelectedIndex = 0;
+
+            serviceListBox.SelectedIndex = -1;
+
+            generateHtml();
         }
 
         private void playVideoButton_Click(object sender, RoutedEventArgs e)
         {
+            playVideo();
+        }
+
+        private void playVideo()
+        {
+            serviceListBox.SelectedIndex = -1;
+
             if (PresentationSource.FromVisual(_liveOutputWindow) == null)
             {
                 if (BackgroundVideoComboBox.SelectedIndex > 0)
@@ -545,8 +637,15 @@ namespace MyPresenter
                 else if (backgroundImageComboBox.SelectedIndex > 0)
                     loadLiveOutputWindow(Properties.Resources.ImagePath + backgroundImageComboBox.SelectedItem.ToString());
                 else
-                    loadLiveOutputWindow(Properties.Resources.PlaceholderImagePath);
+                {
+                    if ((bool)useBlankImageCheckBox.IsChecked)
+                        loadLiveOutputWindow(Properties.Resources.PlaceholderImagePath.Replace("LivingRoomTitle.jpg", "_blank.jpg"));
+                    else
+                        loadLiveOutputWindow(Properties.Resources.PlaceholderImagePath);
+                }
             }
+
+            _pcoWorker.CancelAsync();
 
             _liveOutputMediaPlayer.IsMuted = MuteAudio;
             _liveOutputMediaPlayer.Clock.Controller.Resume();
@@ -554,37 +653,15 @@ namespace MyPresenter
             playVideoButton.IsEnabled = false;
 
             _liveOutputWindow.Show();
-        }
 
-        private void pauseVideoButton_Click(object sender, RoutedEventArgs e)
-        {
-            _liveOutputMediaPlayer.Clock.Controller.Pause();
-
-            playVideoButton.IsEnabled = true;
+            LiveActive = true;
+            
+            generateHtml();
         }
 
         private void stopVideoButton_Click(object sender, RoutedEventArgs e)
         {
             stopLive();
-        }
-
-        private void loadSongs()
-        {
-            if (this.Dispatcher.CheckAccess())
-            {
-                DirectoryInfo di = new DirectoryInfo(Properties.Resources.SongPath);
-                var directories = di.GetFiles("*.xml");
-
-                SongList.Items.Clear();
-
-                //foreach (FileInfo d in directories)
-                //    System.IO.File.Move(d.FullName, d.FullName.Remove(d.FullName.IndexOf(")") - 1, 2));
-
-                foreach (FileInfo d in directories)
-                    SongList.Items.Add(System.IO.Path.GetFileNameWithoutExtension(d.Name));
-            }
-            else
-                 this.Dispatcher.Invoke(new Action(loadSongs));
         }
 
         private void loadBumperVideos()
@@ -655,58 +732,41 @@ namespace MyPresenter
                 this.Dispatcher.BeginInvoke(new Action(loadBackgroundImages));
         }
 
-        private void setVideo(Uri videoUri)
-        {
-            MediaTimeline mTimeLine = new MediaTimeline(videoUri);
-
-            if (videoUri.ToString().Contains("Loop")) mTimeLine.RepeatBehavior = RepeatBehavior.Forever;
-            
-            MediaClock mClock = mTimeLine.CreateClock();
-
-            _liveOutputMediaPlayer.Clock = mClock;
-            //_liveOutputMediaPlayer.Clock.Controller.Begin();
-            //_liveOutputMediaPlayer.Clock.Controller.Pause();
-        }
-
         private void setSong(string songName)
         {
-            //_currentSong = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + "\\" + songName + ".xml");
+            if (!File.Exists(Properties.Resources.SongPath + songName + ".xml")) return;
 
-            //var q = (
-            //        from l in _currentSong.lyrics
-            //        select l.lines.Text).ToList();
+            New.song _currentSong = Serializer.DeserializeFromXML<New.song>(Properties.Resources.SongPath + "\\" + songName + ".xml");
 
-            XmlReaderSettings settings = new XmlReaderSettings();
+            ScriptListView.Items.Clear();
 
-            settings.ConformanceLevel = ConformanceLevel.Fragment;
-            settings.IgnoreComments = true;
-            settings.IgnoreWhitespace = true;
-            settings.IgnoreProcessingInstructions = true;
-
-            using (XmlReader reader = XmlReader.Create(Properties.Resources.SongPath + songName + ".xml", settings))
+            foreach (New.songVerse v in _currentSong.lyrics)
             {
-                //_currentSong = new ObservableCollection<string>;
+                Bitmap flag = new Bitmap(320, 240);
+                Graphics flagGraphics = Graphics.FromImage(flag);
 
-                ScriptListView.Items.Clear();
+                //flagGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                //flagGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                //flagGraphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                flagGraphics.DrawString(v.name, new Font("Century Gothic", 10), System.Drawing.Brushes.DarkGray, new PointF(0, 0));
 
-                reader.MoveToContent();
+                MemoryStream ms = new MemoryStream();
+                flag.Save(ms, System.Drawing.Imaging.ImageFormat.Bmp);
+                ms.Position = 0;
 
-                while (reader.Read())
-                {
-                    if (reader.NodeType != XmlNodeType.Element) continue;
+                BitmapImage bi = new BitmapImage();
+                bi.BeginInit();
+                bi.StreamSource = ms;
+                bi.EndInit();
 
-                    reader.ReadToFollowing("lines");
+                System.Windows.Controls.ListViewItem lvi = new System.Windows.Controls.ListViewItem();
+                lvi.Content = v.lyric.Replace("_", "\n");
+                lvi.Background = new ImageBrush(bi);
+                lvi.Name = v.name;
 
-                    string _dis = reader.ReadInnerXml();
+                if ((string)lvi.Content == "") lvi.Content = "[ BLANK ]";
 
-                    _dis = _dis.Replace("<br />", "\n");
-                    _dis = _dis.Replace("<br xmlns=\"http://openlyrics.info/namespace/2009/song\" />", "\n");
-                    _dis = _dis.Replace("<lines xmlns=\"http://openlyrics.info/namespace/2009/song\" />", "\n");
-                    _dis = _dis.Replace("<lines xmlns=\"http://openlyrics.info/namespace/2009/song\">", "");
-                    _dis = _dis.Replace("</lines>", "\n");
-
-                    ScriptListView.Items.Add(_dis);
-                }
+                ScriptListView.Items.Add(lvi);
             }
         }
 
@@ -760,6 +820,10 @@ namespace MyPresenter
             BackgroundVideoComboBox.SelectedIndex = 0;
             BumperVideoComboBox.SelectedIndex = 0;
 
+            //if ((bool)SlideShowCheckBox.IsChecked)
+            //{
+            //    System.Threading.Timer t = new System.Threading.Timer(state => KA(stuff, state));
+
             setVideo(new Uri(Properties.Resources.ImagePath + backgroundImageComboBox.SelectedValue.ToString()));
 
             if (PresentationSource.FromVisual(_liveOutputWindow) != null) _liveOutputMediaPlayer.Clock.Controller.Resume();
@@ -767,32 +831,41 @@ namespace MyPresenter
 
         private void ScriptListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            //if (ScriptListView.SelectedIndex == -1 || ScriptListView.SelectedIndex == 0) return;
-
-            //ScriptListView.ScrollIntoView(ScriptListView.SelectedItem);
+            System.Windows.Controls.ListViewItem lvi;
 
             scriptTextBlock.Text = "";
 
             // do not continue if nothing is selected
             if (ScriptListView.SelectedIndex < 0) return;
-            
-            // show text in preview window
-            scriptTextBlock.Text = ScriptListView.SelectedItem.ToString();
 
-            // display text in output window
-            _liveOutputWindow.DisplayText(ScriptListView.SelectedItem.ToString());
-        }
+            // get selected item
+            lvi = (System.Windows.Controls.ListViewItem)ScriptListView.SelectedItem;
 
-        private void SongList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + SongList.SelectedItem.ToString() + ".xml");
+            if ((string)lvi.Content == "[ BLANK ]")
+            {
+                // show text in preview window
+                scriptTextBlock.Text = "[ BLANK ]";
 
-            _serviceItemList.Add(new ServiceItem() { Title = _song.properties.titles.title, Pad = _song.properties.key });
+                // display text in output window
+                _liveOutputWindow.DisplayText("");
+            }
+            else
+            {
+                // show text in preview window
+                scriptTextBlock.Text = (string)lvi.Content;
 
-            SongList.SelectedIndex = -1;
+                // display text in output window
+                _liveOutputWindow.DisplayText((string)lvi.Content);
+            }
 
-            textBox1.Focus();
-            textBox1.SelectAll();
+            //ScriptListView.SelectedItem = lvi;
+
+            App.Current.Properties["card"] = scriptTextBlock.Text.Replace("\r\n", "<br />");
+
+            double _index = ScriptListView.SelectedIndex;
+            double _count = ScriptListView.Items.Count - 1;
+
+            _serviceItemList[serviceListBox.SelectedIndex].Progress = (int)((_index / _count) * 100);
         }
 
         private void serviceListBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -800,6 +873,8 @@ namespace MyPresenter
             object item = serviceListBox.SelectedItem;
             int index = serviceListBox.SelectedIndex;
 
+            // ----  SAVE FOR POSSIBLE FUTURE USE ---- //
+            // --------------------------------------- //
             //if (Keyboard.IsKeyDown(Key.F5))
             //{
             //    int breakCount = 1;
@@ -809,6 +884,7 @@ namespace MyPresenter
 
             //    serviceListBox.Items.Insert(index + 1, "Break " + breakCount.ToString() + " - 10:00");
             //}
+            // --------------------------------------- //
 
             if (e.Key == Key.OemMinus)
                 _serviceItemList.Remove((ServiceItem)serviceListBox.SelectedItem);
@@ -816,22 +892,81 @@ namespace MyPresenter
 
         private void serviceListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            New.song _currentSong = new New.song();
+
             if (serviceListBox.SelectedIndex < 0) ScriptListView.Items.Clear();
             if (serviceListBox.SelectedIndex < 0) return;
 
-            _liveOutputWindow.DisplayText(""); 
-            
+            _liveOutputWindow.DisplayText("");
+
+            // get song selection
             ServiceItem _song = (ServiceItem)serviceListBox.SelectedItem;
 
-            setSong(_song.Title); 
-            
-            if (PresentationSource.FromVisual(_liveOutputWindow) == null) return;
+            try
+            {
+                // create song object
+                _currentSong = Serializer.DeserializeFromXML<New.song>(Properties.Resources.SongPath + _song.Title + ".xml");
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show("Error loading '" + _song.Title + "'.", "XML Error");
 
-            setLoop(getLoopSelection(serviceListBox.SelectedItem));
-            startPad(getPadSelection(serviceListBox.SelectedItem));
-            
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
+
+            if (PresentationSource.FromVisual(_liveOutputWindow) != null)
+            {
+                var rand = new Random();
+                var files = Directory.GetFiles(Properties.Resources.LoopPath, "background*.mp*"); // filter for auto-selecting bg loops
+                string _loop = _currentSong.loop;
+
+                // select random loop if none specified in XML file
+                if (_loop == "") _loop = System.IO.Path.GetFileName(files[rand.Next(files.Length)]);
+
+                setLoop(_loop); //getLoopSelection(serviceListBox.SelectedItem));
+                startPad(_currentSong.key); //getPadSelection(serviceListBox.SelectedItem));
+
+                MuteAudio = false;
+            }
+
+            setSong(_song.Title);
+
+            double _count = ScriptListView.Items.Count;
+            double _progress = (((ServiceItem)_serviceItemList[serviceListBox.SelectedIndex]).Progress / 100.0);
+            double _index = _count * _progress;
+
+            ScriptListView.SelectedIndex = (int)_index;
+            ScriptListView.Focus();
+            ScriptListView.ScrollIntoView(ScriptListView.SelectedItem);
+
+            if (ScriptListView.SelectedItem != null)
+                ((ListBoxItem)ScriptListView.SelectedItem).Focus();
+
             //if (serviceListBox.SelectedItem.ToString().Contains("Break"))
             //    gotoBreak(new Uri(Properties.Resources.ImagePath + "\\LivingRoomLive.jpg", UriKind.Absolute));
+
+            // update HTML for remote control
+            generateHtml();
+
+            //killSpotify();
+        }
+
+        private void killSpotify()
+        {
+            try
+            {
+                //foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcesses())
+                //{
+                //    if (p.ProcessName == "Spotify")
+                //    {
+                //        p.Kill();
+                //    }
+                //} 
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
         }
 
         public string getPadSelection(object PadListBoxItem)
@@ -889,25 +1024,6 @@ namespace MyPresenter
             return _list;
         }
 
-        private void textBox1_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (textBox1.Text == "" || textBox1.Text == "Search")
-                loadSongs();
-            else
-            {
-                SongList.Items.Clear();
-
-                DirectoryInfo di = new DirectoryInfo(Properties.Resources.SongPath);
-                var directories = di.GetFiles("*.xml");
-
-                foreach (FileInfo d in directories)
-                {
-                    if (d.FullName.Contains(textBox1.Text) && !FindListViewItem(SongList))
-                        SongList.Items.Add(System.IO.Path.GetFileNameWithoutExtension(d.FullName));
-                }
-            }
-        }
-
         public bool FindListViewItem(DependencyObject obj)
         {
             bool _found = false;
@@ -940,16 +1056,6 @@ namespace MyPresenter
             _liveOutputWindow.DisplayText(displayTextBox.Text);
         }
 
-        private void textBox1_GotFocus(object sender, RoutedEventArgs e)
-        {
-            if (textBox1.Text == "Search") textBox1.Text = "";
-        }
-
-        private void textBox1_LostFocus(object sender, RoutedEventArgs e)
-        {
-            if (textBox1.Text == "") textBox1.Text = "Search";
-        }
-
         private void ScriptListView_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (e.Key != Key.Down && e.Key != Key.Up) return;
@@ -961,9 +1067,11 @@ namespace MyPresenter
                 {
                     serviceListBox.SelectedIndex -= 1;
 
-                    //ScriptListView.SelectedIndex = ScriptListView.Items.Count - 1;
-                    //ScriptListView.Focus();
-                    //ScriptListView.ScrollIntoView(ScriptListView.SelectedItem);
+                    ScriptListView.SelectedIndex = ScriptListView.Items.Count - 1;
+                    ScriptListView.Focus();
+                    ScriptListView.ScrollIntoView(ScriptListView.SelectedItem);
+
+                    ((ListBoxItem)ScriptListView.SelectedItem).Focus();
                 }
             }
 
@@ -977,6 +1085,8 @@ namespace MyPresenter
                     ScriptListView.SelectedIndex = 0;
                     ScriptListView.Focus();
                     ScriptListView.ScrollIntoView(ScriptListView.SelectedItem);
+
+                    ((ListBoxItem)ScriptListView.SelectedItem).Focus();
                 }
             }
         }
@@ -1005,6 +1115,9 @@ namespace MyPresenter
             // save service list for offline backup
             Serializer.SerializeToXML<ServiceItem>(_serviceItemList);
 
+            // save notes
+            saveNotes();
+
             //foreach (ServiceItem serviceItem in serviceListBox.Items)
             //{
             //    song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + serviceItem.Title + ".xml");
@@ -1014,6 +1127,13 @@ namespace MyPresenter
 
             //    Serializer.SerializeToXML<song>(_song, Properties.Resources.SongPath + serviceItem.Title + ".xml");
             //}
+
+            killSpotify();
+
+            // re-activate screen saver
+            SleepUtil.SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
+
+            _remoteControl.StopServer();
         }
 
         private void Window_Closed(object sender, EventArgs e)
@@ -1032,8 +1152,11 @@ namespace MyPresenter
 
             if (PadToPlay == "") return;
 
+            if (!PadToPlay.Contains(".mp3"))
+                PadToPlay += ".mp3";
+
             _audioPlayer = new MediaPlayer();
-            _audioPlayer.Open(new Uri(Properties.Resources.PadPath + PadToPlay + ".mp3"));
+            _audioPlayer.Open(new Uri(Properties.Resources.PadPath + PadToPlay));
             _audioPlayer.Play();
 
             MuteAudio = false;
@@ -1041,19 +1164,29 @@ namespace MyPresenter
 
         private void setLoop(string LoopToPlay)
         {
-            if (LoopToPlay == "") return;
+            //string _loopPath = "";
 
-            if (LoopToPlay.IndexOf("_") < 0) LoopToPlay = "background_" + LoopToPlay;
+            //if (LoopToPlay == "") return;
 
-            //DoubleAnimation __ani = new DoubleAnimation(1.0, 0.0, TimeSpan.FromSeconds(3), FillBehavior.Stop);
+            //// set announcement loop
+            ////if (serviceListBox.SelectedIndex == 0) LoopToPlay = "announcements_" + LoopToPlay;
 
-            //__ani.Completed += (o, e) =>
-            //{
-            //    //_liveOutputWindow.BeginAnimation(MediaElement.OpacityProperty, null);
+            //// set background loop
+            //if (LoopToPlay.IndexOf("_") < 0) LoopToPlay = "background_" + LoopToPlay;
 
-                setVideo(new Uri(Properties.Resources.LoopPath + LoopToPlay + ".mpg", UriKind.Absolute));
+            ////DoubleAnimation __ani = new DoubleAnimation(1.0, 0.0, TimeSpan.FromSeconds(3), FillBehavior.Stop);
 
-                _liveOutputMediaPlayer.Clock.Controller.Resume();
+            ////__ani.Completed += (o, e) =>
+            ////{
+            ////    //_liveOutputWindow.BeginAnimation(MediaElement.OpacityProperty, null);
+
+            //_loopPath = Properties.Resources.LoopPath + LoopToPlay;
+
+            setVideo();
+
+            _liveOutputMediaPlayer.Clock.Controller.Resume();
+
+            //if (LoopToPlay.Substring(0, 9) == "countdown") MuteAudio = true;
 
             //    // fade in
             //    _liveOutputWindow.BeginAnimation(MediaElement.OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromSeconds(1), FillBehavior.Stop));
@@ -1063,13 +1196,42 @@ namespace MyPresenter
             //_liveOutputWindow.BeginAnimation(MediaElement.OpacityProperty, __ani);
         }
 
+        private void setVideo()
+        {
+            try
+            {
+                _liveOutputMediaPlayer.Clock = ((ServiceItem)serviceListBox.SelectedItem).VideoPlayer.Clock;
+            }
+            catch (Exception ex)
+            {
+                setVideo(new Uri(Properties.Resources.LoopPath + "background_FractalFlood.mpg"));
+
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
+            }
+            finally
+            { }
+        }
+
+        private void setVideo(Uri videoUri)
+        {
+            MediaTimeline mTimeLine = new MediaTimeline(videoUri);
+
+            if (videoUri.ToString().Contains("Loop")) mTimeLine.RepeatBehavior = RepeatBehavior.Forever;
+
+            MediaClock mClock = mTimeLine.CreateClock();
+
+            _liveOutputMediaPlayer.Clock = mClock;
+            //_liveOutputMediaPlayer.Clock.Controller.Begin();
+            //_liveOutputMediaPlayer.Clock.Controller.Pause();
+        }
+
         private void ScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
             testLabel.Content = e.ViewportHeight + " / " + e.VerticalChange.ToString() + " / " + e.VerticalOffset.ToString() + " / " + e.ExtentHeight.ToString();
         }
 
         private void serviceListBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-        {            
+        {
             int index = serviceListBox.SelectedIndex;
 
             if (e.Key == Key.Up && (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
@@ -1091,12 +1253,15 @@ namespace MyPresenter
             if (serviceListBox.SelectedIndex < 0) ScriptListView.Items.Clear();
             if (serviceListBox.SelectedIndex < 0) return;
 
+            // get song title
             ServiceItem _song = (ServiceItem)serviceListBox.SelectedItem;
 
-            setSong(_song.Title);
+            // create song object
+            New.song _currentSong = Serializer.DeserializeFromXML<New.song>(Properties.Resources.SongPath + _song.Title + ".xml");
 
-            startPad(getPadSelection(serviceListBox.SelectedItem));
-            setLoop(getLoopSelection(serviceListBox.SelectedItem));
+            setSong(_song.Title);
+            startPad(_currentSong.key); //getPadSelection(serviceListBox.SelectedItem));
+            setLoop(_currentSong.loop); //getLoopSelection(serviceListBox.SelectedItem));
         }
 
         private void quickVerseTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -1143,7 +1308,7 @@ namespace MyPresenter
             }
             catch (Exception ex)
             {
-                //
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
             }
             finally { }
 
@@ -1152,6 +1317,226 @@ namespace MyPresenter
         private void muteImage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             MuteAudio = !MuteAudio;
+        }
+
+        private void spotifyButton_Click(object sender, RoutedEventArgs e)
+        {
+            //if (_spotify == null)
+            //{
+            //    _spotify = Process.Start(@"C:\Users\Owner\AppData\Roaming\Spotify\Spotify.exe");
+
+            //    spotifyButton.Content = "stop spotify";
+            //}
+            //else
+            //    
+
+            killSpotify();
+        }
+
+        private void ScriptListItemAdd_Click(object sender, RoutedEventArgs e)
+        {
+            // not implemented
+        }
+
+        private void ScriptListItemDelete_Click(object sender, RoutedEventArgs e)
+        {
+            // not implemented
+        }
+
+        private void ScriptListItemEdit_Click(object sender, RoutedEventArgs e)
+        {
+            if (Mouse.RightButton == MouseButtonState.Pressed) return;
+
+            string _path = Properties.Resources.SongPath + "\\";
+
+            if (serviceListBox.SelectedIndex == -1) return;
+
+            _path += ((ServiceItem)serviceListBox.SelectedItem).Title + ".xml";
+
+            EditSlide _editSlide = new EditSlide(_path, ((System.Windows.Controls.ListViewItem)ScriptListView.SelectedItem).Name);
+
+            _editSlide.ShowDialog();
+
+            setSong(((ServiceItem)serviceListBox.SelectedItem).Title);
+        }
+
+        private void ServiceListItemAdd_Click(object sender, RoutedEventArgs e)
+        {
+            // not implemented
+        }
+
+        private void ServiceListItemDelete_Click(object sender, RoutedEventArgs e)
+        {
+            // not implemented
+        }
+
+        private void ServiceListItemEdit_Click(object sender, RoutedEventArgs e)
+        {
+            string _path = Properties.Resources.SongPath;
+
+            if (serviceListBox.SelectedIndex == -1) return;
+
+            _path += ((ServiceItem)serviceListBox.SelectedItem).Title.Replace("MISSING PAD: ", "") + ".xml";
+
+            NewSong _newSong = new NewSong(_path);
+
+            _newSong.Show();
+
+            setSong(((ServiceItem)serviceListBox.SelectedItem).Title);
+        }
+
+        private string getNotes()
+        {
+            string _notes = "";
+
+            if (!File.Exists(Properties.Resources.NotesPath)) return _notes;
+
+            using (TextReader reader = new StreamReader(Properties.Resources.NotesPath))
+            {
+                _notes = reader.ReadToEnd();
+            }
+
+            return _notes;
+        }
+
+        private void saveNotes()
+        {
+            using (TextWriter writer = new StreamWriter(Properties.Resources.NotesPath, false))
+            {
+                notesTextBox.SelectAll();
+
+                writer.Write(notesTextBox.Selection.Text);
+            }
+        }
+
+        public static IEnumerable<TextRange> GetAllWordRanges(FlowDocument document)
+        {
+            string pattern = @"[#@]*[^\W\d](\w|[-']{1,2}(?=\w))*"; //@"(?:(?<=\s)|^)(\w*[A-Za-z_]+\w*)"; // 
+
+            TextPointer pointer = document.ContentStart;
+
+            while (pointer != null)
+            {
+                if (pointer.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+                {
+                    string textRun = pointer.GetTextInRun(LogicalDirection.Forward);
+
+                    MatchCollection matches = Regex.Matches(textRun, pattern, RegexOptions.Multiline);
+
+                    foreach (Match match in matches)
+                    {
+                        int startIndex = match.Index;
+                        int length = match.Length;
+
+                        TextPointer start = pointer.GetPositionAtOffset(startIndex);
+                        TextPointer end = start.GetPositionAtOffset(length);
+
+                        yield return new TextRange(start, end);
+                    }
+                }
+
+                pointer = pointer.GetNextContextPosition(LogicalDirection.Forward);
+            }
+        }
+
+        private void notesTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            
+        }
+
+        private void notesWorker_DoWork(object sender, DoWorkEventArgs e)
+        {
+            FlowDocument doc = new FlowDocument();
+
+            try
+            {
+                // set doc text
+                this.Dispatcher.Invoke((Action)delegate()
+                {
+                    doc = notesTextBox.Document;
+                });
+
+                TextRange textRange = new TextRange(doc.ContentStart, doc.ContentEnd);
+
+                IEnumerable<TextRange> wordRanges = GetAllWordRanges(doc);
+
+                foreach (TextRange wordRange in wordRanges)
+                {
+                    if (wordRange.Text.Contains("#"))
+                    {
+                        wordRange.ApplyPropertyValue(TextElement.ForegroundProperty, new SolidColorBrush(Colors.Green));
+                        wordRange.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Bold);
+                    }
+                    else if (wordRange.Text.Contains("@"))
+                    {
+                        wordRange.ApplyPropertyValue(TextElement.ForegroundProperty, new SolidColorBrush(Colors.Blue));
+                        wordRange.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Bold);
+                    }
+                    else
+                    {
+                        wordRange.ApplyPropertyValue(TextElement.ForegroundProperty, new SolidColorBrush(Colors.Black));
+                        wordRange.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Normal);
+                    }
+                }
+            }
+            catch (Exception ex)
+            { System.Diagnostics.Debug.WriteLine(ex.Message); }
+
+            e.Result = doc;
+        }
+
+        private void notesWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            if (e.Error != null) return;
+            if (e.Result == null) return;
+
+            this.Dispatcher.Invoke((Action)delegate()
+            {
+                notesTextBox.Document = (FlowDocument)e.Result;
+            });
+        }
+
+        private void pcoWorker_DoWork(object sender, DoWorkEventArgs e)
+        {
+            while (!_pcoWorker.CancellationPending)
+            {
+                DateTime _pcoLastUpdate;
+                DateTime _pcoLastUpdate2;
+
+                // do not check for updates if live output
+                //if (PresentationSource.FromVisual(_liveOutputWindow) != null) continue;
+
+                System.Threading.Thread.Sleep(5000);
+
+                // get last update
+                if (!DateTime.TryParse(PCO.pcoLastUpdate(), out _pcoLastUpdate)) continue;
+
+                // convert global last PCO update
+                DateTime.TryParse(pco_last_update, out _pcoLastUpdate2);
+
+                // check for recent
+                if (_pcoLastUpdate.ToString("MM/dd/yyyy HH:mm:ss") == _pcoLastUpdate2.ToString("MM/dd/yyyy HH:mm:ss")) continue;
+
+                // update list
+                loadServiceList();
+
+                // enable play/stop buttons
+                this.Dispatcher.BeginInvoke((Action)delegate()
+                {
+                    playVideoButton.IsEnabled = true;
+                    stopVideoButton.IsEnabled = true;
+                });
+            }
+        }
+
+        private void pcoWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+
+        }
+
+        private void notesTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (!_notesWorker.IsBusy) _notesWorker.RunWorkerAsync();
         }
     }
 }

@@ -18,11 +18,13 @@
                 </Style.Triggers>
             </Style>
         </Grid.Resources>
-        <Viewbox x:Name="mediaViewBox" Stretch="Uniform" Margin="152,0,152,216">
-            <MediaElement Name="VideoPlayer" MaxWidth="320" MaxHeight="240" MinWidth="320" MinHeight="240" VerticalAlignment="Center" HorizontalAlignment="Center" LoadedBehavior="Manual" UnloadedBehavior="Manual" ScrubbingEnabled="True" />
+        
+        <Viewbox x:Name="mediaViewBox" Stretch="UniformToFill" Margin="0">
+            <MediaElement Name="VideoPlayer" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" LoadedBehavior="Manual" UnloadedBehavior="Manual" ScrubbingEnabled="True" />
         </Viewbox>
-        <Viewbox x:Name="textViewBox" Stretch="Uniform" Margin="300,40,300,230">
-            <TextBlock x:Name="scriptTextBlock" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextWrapping="Wrap" Style="{StaticResource ResourceKey=SetTextColor}" TextAlignment="Center" FontFamily="Century Gothic">
+
+        <Viewbox x:Name="textViewBox" Stretch="Uniform" StretchDirection="Both" Margin="10">
+            <TextBlock x:Name="scriptTextBlock" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Style="{StaticResource ResourceKey=SetTextColor}" TextAlignment="Center" FontFamily="Century Gothic">
                 <TextBlock.Effect>
                     <DropShadowEffect
                       ShadowDepth="2"

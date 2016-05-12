@@ -16,6 +16,7 @@ namespace MyPresenter
     {
         private static string live = "https://accounts.spotify.com/api/token";
         private static string playlist = "https://api.spotify.com/v1/users/spotify/playlists/6Higf6awk4pfVmjvlaCn7b";
+        private static string trackList = "https://api.spotify.com/v1/users/spotify/playlists/6Higf6awk4pfVmjvlaCn7b/tracks";
 
         public static string getToken()
         {
@@ -25,6 +26,23 @@ namespace MyPresenter
         public static string getPlaylist()
         {
             return getHttpWebResponse(playlist, getToken());
+        }
+
+        public static spotifyTracks.Tracks getTracks()
+        {
+            spotifyTracks.Tracks tracks = new spotifyTracks.Tracks();
+
+            try
+            {
+                tracks = JSonHelper.ConvertJSonToObject<spotifyTracks.Tracks>(getHttpWebResponse(trackList, getToken()));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.EventLog.WriteEntry("MyPresenter", ex.Message);
+            }
+            finally { }
+
+            return tracks;
         }
 
         private static string getHttpWebResponse(string url, string token)

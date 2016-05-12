@@ -9,6 +9,7 @@ namespace MyPresenter
     {
         private static string live = "https://api.planningcenteronline.com/services/v2/service_types/384800/plans?filter=future";
         private static string sunday = "https://api.planningcenteronline.com/services/v2/service_types/308769/plans?filter=future";
+        private static long ticks = 0;
 
         public static string pcoLastUpdate()
         {
@@ -20,7 +21,9 @@ namespace MyPresenter
             }
             catch (Exception ex)
             {
-                System.Windows.MessageBox.Show("Error loading PCO Plan. Check to make sure plan exists.", "PCO Import Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Exclamation);
+                System.Diagnostics.Debug.WriteLine(ex.Message);
+
+                //System.Windows.MessageBox.Show("Error loading PCO Plan. Check to make sure plan exists.", "PCO Import Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Exclamation);
             }
             
             return ret;
@@ -49,7 +52,7 @@ namespace MyPresenter
             }
             catch (Exception ex)
             {
-                //
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
             }
             finally { }
 
@@ -66,7 +69,7 @@ namespace MyPresenter
             }
             catch (Exception ex)
             {
-                //
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
             }
             finally { }
 
@@ -97,7 +100,7 @@ namespace MyPresenter
             }
             catch (Exception ex)
             {
-                //
+                System.Diagnostics.EventLog.WriteEntry("Application", ex.Message);
             }
             finally { }
 

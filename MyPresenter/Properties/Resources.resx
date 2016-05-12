@@ -129,11 +129,20 @@
   <data name="MusicPath" xml:space="preserve">
     <value>C:\Users\Owner\Desktop\MyPresenterLibrary\AudioLibrary\Music\</value>
   </data>
+  <data name="NotesPath" xml:space="preserve">
+    <value>C:\Users\Owner\Desktop\MyPresenterLibrary\notes.txt</value>
+  </data>
   <data name="PadPath" xml:space="preserve">
     <value>C:\Users\Owner\Desktop\MyPresenterLibrary\AudioLibrary\Pads\</value>
   </data>
   <data name="PlaceholderImagePath" xml:space="preserve">
     <value>C:\Users\Owner\Desktop\MyPresenterLibrary\VideoLibrary\Images\LivingRoomTitle.jpg</value>
+  </data>
+  <data name="RemoteControlIndexPage" xml:space="preserve">
+    <value>C:\Users\Owner\Desktop\MyPresenterLibrary\index.htm</value>
+  </data>
+  <data name="RemoteControlIndexTemplate" xml:space="preserve">
+    <value>C:\Users\Owner\Desktop\MyPresenterLibrary\index.tmp</value>
   </data>
   <data name="SettingsFilePath" xml:space="preserve">
     <value>C:\Users\Owner\Desktop\MyPresenterLibrary\service.xml</value>

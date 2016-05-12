@@ -34,17 +34,17 @@ namespace MyPresenter
             InitializeComponent();
 
             //getPlanItems();
-            song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + "Love Come Down.xml");
+            //song _song = Serializer.DeserializeFromXML<song>(Properties.Resources.SongPath + "Love Come Down.xml");
 
-            //var q = (
-            //        from l in _song.lyrics
-            //        select l.lines.Text).ToList();
+            ////var q = (
+            ////        from l in _song.lyrics
+            ////        select l.lines.Text).ToList();
 
-            foreach (songVerse s in _song.lyrics)
-            {
-                if (s.lines.VerseText != null)
-                    TextBox1.Text += s.lines.VerseText.GetLength(0) + "\n";
-            }
+            //foreach (songVerse s in _song.lyrics)
+            //{
+            //    if (s.lines.VerseText != null)
+            //        TextBox1.Text += s.lines.VerseText.GetLength(0) + "\n";
+            //}
         }
 
         private void getPlanItems()
@@ -81,14 +81,25 @@ namespace MyPresenter
             //}
         }
 
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            TextBox1.Text = Spotify.getToken();
-        }
+        //private void Button_Click(object sender, RoutedEventArgs e)
+        //{
+        //    TextBox1.Text = Spotify.getPlaylist();
+        //}
 
-        private void Button_Click_1(object sender, RoutedEventArgs e)
-        {
-            TextBox1.Text = Spotify.getPlaylist();
-        }
+        //private void Button_Click_1(object sender, RoutedEventArgs e)
+        //{
+        //    foreach (spotifyTracks.Item item in Spotify.getTracks().items)
+        //    {
+        //        //if (VideoPlayer.Source == null)
+        //        //{
+        //        VideoPlayer.Source = new Uri(item.track.preview_url);
+        //        VideoPlayer.Play();
+        //        //}
+
+        //        TextBox1.Text += item.track.name + ": " + item.track.external_urls.spotify + '\n';
+        //    }
+
+        //    //https://open.spotify.com/track/5Mw9bXG1dLNhbjofkVS2oR
+        //}
     }
 }
